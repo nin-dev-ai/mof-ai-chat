@@ -1,4 +1,4 @@
-import React, { useLayoutEffect, useRef, useState, useEffect, ReactNode, useMemo } from "react";
+import React, { useLayoutEffect, useRef, useState, useEffect, useMemo } from "react";
 import * as am5 from "@amcharts/amcharts5";
 import am5themes_Animated from "@amcharts/amcharts5/themes/Animated";
 import { BrickWall, ChartArea, ChartBar, ChartCandlestick, ChartColumn, ChartColumnStacked, ChartLine, ChartScatter, Dice5, Donut, Funnel, Globe2, TrendingDown } from "lucide-react";
@@ -18,8 +18,8 @@ import {
   TreemapChart,
 } from "./ChartTypes";
 import { ThemeColors } from "../WeaveAiChat";
+import { twMerge } from "tailwind-merge";
 import {
-  ChartBarIcon,
   ChartPieIcon,
   ChevronDownIcon,
   XMarkIcon,
@@ -28,6 +28,21 @@ import am5themes_Responsive from "@amcharts/amcharts5/themes/Responsive";
 
 
 
+
+export const DEFAULT_CHART_TYPE = 13;
+export const CHART_TYPE_MENU_ORDER = [13, 12, 1];
+
+const ALLOWED_CHART_TYPES = new Set(CHART_TYPE_MENU_ORDER);
+
+/**
+ * Use the chart type the backend sent (line=1, bar=12, column=13).
+ * Column is only the fallback when the type is missing or unsupported.
+ */
+export const resolveInitialChartType = (type?: unknown) => {
+  const chartType = Number(type);
+  if (ALLOWED_CHART_TYPES.has(chartType)) return chartType;
+  return DEFAULT_CHART_TYPE;
+};
 
 export interface ChartState {
   chartDisplay: boolean;
@@ -153,6 +168,10 @@ export const useAmChart = (
 
   useLayoutEffect(() => {
     if (!ref.current) return;
+    // Charts must stay LTR even when the chat UI is Arabic, otherwise
+    // axis titles and in-bar values flip and get clipped.
+    ref.current.setAttribute("dir", "ltr");
+    ref.current.style.direction = "ltr";
     if (amRootRef.current) {
       amRootRef.current.dispose();
       amRootRef.current = null;
@@ -186,28 +205,27 @@ export const RenderChart = ({
   chartState,
   themeColors,
   isFullScreen,
-  isLandscape,
-  onclose
+  onclose,
 }: {
   setChartState: React.Dispatch<React.SetStateAction<ChartState>>;
   chartState: ChartState;
   themeColors: ThemeColors;
   isFullScreen?: boolean;
-  isLandscape?: boolean
-  onclose?: () => void
+  onclose?: () => void;
 }) => {
   const [showTypeSelector, setShowTypeSelector] = useState(false);
   const [selectedChartType, setSelectedChartType] = useState("column");
-  const [showSortMenu, setShowSortMenu] = useState(false);
-  const [sortOption, setSortOption] = useState<'none' | 'value-desc' | 'value-asc' | 'name-asc' | 'name-desc'>('none');
 
-  const filteredChartTypes = useMemo(
-    () =>
-      chartTypes.filter((chartType) =>
-        chartState.altType.includes(chartType.chartId)
-      ),
-    [chartState.altType]
-  );
+  const filteredChartTypes = useMemo(() => {
+    const allowed = chartTypes.filter((chartType) =>
+      (chartState.altType ?? CHART_TYPE_MENU_ORDER).includes(chartType.chartId)
+    );
+    return [...allowed].sort((a, b) => {
+      const aIndex = CHART_TYPE_MENU_ORDER.indexOf(a.chartId);
+      const bIndex = CHART_TYPE_MENU_ORDER.indexOf(b.chartId);
+      return (aIndex === -1 ? 99 : aIndex) - (bIndex === -1 ? 99 : bIndex);
+    });
+  }, [chartState.altType]);
 
   useEffect(() => {
     const matched = chartTypes.find(
@@ -234,70 +252,26 @@ export const RenderChart = ({
   
   const SelectedIcon = selectedType?.icon;
 
-  const containerClasses = isFullScreen 
-    ? `w-full h-full max-h-screen flex flex-col bg-gradient-to-br from-[#FAF8F3] via-white to-[#FFF9E8] rounded-xl border border-[rgba(198,167,93,0.28)] shadow-sm`
-    : "w-[70vw] md:w-[35rem] overflow-x-auto overflow-y-auto bg-gradient-to-br from-[#FAF8F3] via-white to-[#FFF9E8] rounded-xl border border-[rgba(198,167,93,0.28)] shadow-sm mt-2";
-  
+  const containerClasses = isFullScreen
+    ? "w-full h-full max-h-screen flex flex-col overflow-visible bg-gradient-to-br from-[#FAF8F3] via-white to-[#FFF9E8] rounded-xl border border-[rgba(198,167,93,0.28)] shadow-sm"
+    : "w-[70vw] md:w-[35rem] overflow-visible bg-gradient-to-br from-[#FAF8F3] via-white to-[#FFF9E8] rounded-xl border border-[rgba(198,167,93,0.28)] shadow-sm mt-2";
+
   const chartContainerClasses = isFullScreen
-    ? `flex-1 w-full min-h-0 overflow-x-auto overflow-y-auto`
-    : "w-[80vw] md:w-full h-[30vh] md:h-[35vh] lg:h-[45vh] overflow-x-auto overflow-y-auto";
-
-  const sortedChartData = useMemo(() => {
-    if (!chartState.chartData || !chartState.chartData.data) return chartState.chartData;
-    
-    const sorted = { ...chartState.chartData };
-    const dataCopy = [...sorted.data];
-    
-    if (sortOption === 'value-desc') {
-      // Sort by value: Highest to Lowest
-      const valueField = sorted.yField || sorted.series?.[0]?.valueYField;
-      dataCopy.sort((a, b) => (b[valueField] || 0) - (a[valueField] || 0));
-    } else if (sortOption === 'value-asc') {
-      // Sort by value: Lowest to Highest
-      const valueField = sorted.yField || sorted.series?.[0]?.valueYField;
-      dataCopy.sort((a, b) => (a[valueField] || 0) - (b[valueField] || 0));
-    } else if (sortOption === 'name-asc') {
-      // Sort alphabetically: A-Z
-      const nameField = sorted.xField || sorted.series?.[0]?.categoryXField;
-      dataCopy.sort((a, b) => {
-        const nameA = String(a[nameField] || '').toLowerCase();
-        const nameB = String(b[nameField] || '').toLowerCase();
-        return nameA.localeCompare(nameB);
-      });
-    } else if (sortOption === 'name-desc') {
-      // Sort alphabetically: Z-A
-      const nameField = sorted.xField || sorted.series?.[0]?.categoryXField;
-      dataCopy.sort((a, b) => {
-        const nameA = String(a[nameField] || '').toLowerCase();
-        const nameB = String(b[nameField] || '').toLowerCase();
-        return nameB.localeCompare(nameA);
-      });
-    }
-    
-    sorted.data = dataCopy;
-    return sorted;
-  }, [chartState.chartData, sortOption]);
-
-  const limitedChartData = useMemo(() => {
-    if (isFullScreen || !sortedChartData) return sortedChartData;
-    
-    const limited = { ...sortedChartData };
-    if (Array.isArray(limited.data)) {
-      limited.data = limited.data.slice(0, 4);
-    }
-    return limited;
-  }, [isFullScreen, sortedChartData]);
-
-  const totalDataCount = chartState.chartData?.data?.length || 0;
-  const showingLimitedData = !isFullScreen && totalDataCount > 4;
+    ? "flex-1 w-full min-h-0 overflow-x-auto overflow-y-auto"
+    : "w-full h-[34vh] md:h-[40vh] lg:h-[48vh] overflow-x-auto overflow-y-auto px-2 pb-1";
 
   return (
-    <div className={containerClasses+" relative"}>
-       <button onClick={onclose} className="block sm:hidden absolute left-0 top-0 p-2 hover:bg-gray-100  rounded-lg transition-colors">
+    <div
+      dir="ltr"
+      className={containerClasses+" relative"}
+      style={showTypeSelector ? { zIndex: 30 } : undefined}
+    >
+      {isFullScreen && (
+        <button onClick={onclose} className="block sm:hidden absolute left-0 top-0 p-2 hover:bg-gray-100 rounded-lg transition-colors">
           <XMarkIcon className="w-5 h-5 text-gray-500" />
         </button>
-      <div className="flex items-center justify-between m-2 sm:m-3 flex-shrink-0 ml-[2rem]">
-       
+      )}
+      <div className={twMerge("flex items-center justify-between m-2 sm:m-3 flex-shrink-0", isFullScreen && "ml-[2rem] sm:ml-3")}>
         <div className="text-center flex-1">
           <div className="text-base sm:text-lg font-semibold text-gray-800 mb-0.5 sm:mb-1">
             {chartState.chartData?.series?.[0]?.name}
@@ -313,216 +287,6 @@ export const RenderChart = ({
           ></div>
         </div>
         <div className="flex items-center gap-1 sm:gap-2">
-          {/* Sort Menu - Only show in fullscreen */}
-          {isFullScreen && (
-            <div className="relative">
-              <button
-                onClick={() => setShowSortMenu(!showSortMenu)}
-                className="flex items-center gap-1 sm:gap-2 px-2 sm:px-3 py-1.5 sm:py-2 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-xs sm:text-sm"
-              >
-                <svg
-                  className="w-3.5 h-3.5 sm:w-4 sm:h-4"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M3 4h13M3 8h9m-9 4h9m5-4v12m0 0l-4-4m4 4l4-4"
-                  />
-                </svg>
-                <span className="hidden sm:inline">Sort</span>
-                <ChevronDownIcon
-                  className={`w-3.5 h-3.5 sm:w-4 sm:h-4 transition-transform duration-300 ${
-                    showSortMenu ? "rotate-180" : ""
-                  }`}
-                />
-              </button>
-
-              {showSortMenu && (
-                <div className="absolute right-0 top-full mt-2 bg-white border border-gray-200 rounded-lg shadow-lg z-10 min-w-56">
-                  <div className="py-1">
-                    <button
-                      onClick={() => {
-                        setSortOption("none");
-                        setShowSortMenu(false);
-                      }}
-                      className={`w-full flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 transition-colors text-left text-sm ${
-                        sortOption === "none" ? "bg-[rgba(198,167,93,0.10)]" : ""
-                      }`}
-                    >
-                      <svg
-                        className="w-4 h-4"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M4 6h16M4 12h16M4 18h16"
-                        />
-                      </svg>
-                      <span
-                        style={{
-                          color:
-                            sortOption === "none"
-                              ? themeColors.primary
-                              : undefined,
-                        }}
-                      >
-                        Default Order
-                      </span>
-                    </button>
-
-                    <div className="border-t border-gray-100 my-1"></div>
-
-                    <button
-                      onClick={() => {
-                        setSortOption("value-desc");
-                        setShowSortMenu(false);
-                      }}
-                      className={`w-full flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 transition-colors text-left text-sm ${
-                        sortOption === "value-desc" ? "bg-[rgba(198,167,93,0.10)]" : ""
-                      }`}
-                    >
-                      <svg
-                        className="w-4 h-4"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M3 4h13M3 8h9m-9 4h6m4 0l4-4m0 0l4 4m-4-4v12"
-                        />
-                      </svg>
-                      <span
-                        style={{
-                          color:
-                            sortOption === "value-desc"
-                              ? themeColors.primary
-                              : undefined,
-                        }}
-                      >
-                        Value: High to Low
-                      </span>
-                    </button>
-
-                    <button
-                      onClick={() => {
-                        setSortOption("value-asc");
-                        setShowSortMenu(false);
-                      }}
-                      className={`w-full flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 transition-colors text-left text-sm ${
-                        sortOption === "value-asc" ? "bg-[rgba(198,167,93,0.10)]" : ""
-                      }`}
-                    >
-                      <svg
-                        className="w-4 h-4"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M3 4h13M3 8h9m-9 4h6m4 0l4 4m0 0l4-4m-4 4V8"
-                        />
-                      </svg>
-                      <span
-                        style={{
-                          color:
-                            sortOption === "value-asc"
-                              ? themeColors.primary
-                              : undefined,
-                        }}
-                      >
-                        Value: Low to High
-                      </span>
-                    </button>
-
-                    <div className="border-t border-gray-100 my-1"></div>
-
-                    <button
-                      onClick={() => {
-                        setSortOption("name-asc");
-                        setShowSortMenu(false);
-                      }}
-                      className={`w-full flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 transition-colors text-left text-sm ${
-                        sortOption === "name-asc" ? "bg-[rgba(198,167,93,0.10)]" : ""
-                      }`}
-                    >
-                      <svg
-                        className="w-4 h-4"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M3 4h13M3 8h9m-9 4h9m5-4v12m0 0l-4-4m4 4l4-4"
-                        />
-                      </svg>
-                      <span
-                        style={{
-                          color:
-                            sortOption === "name-asc"
-                              ? themeColors.primary
-                              : undefined,
-                        }}
-                      >
-                        Name: A-Z
-                      </span>
-                    </button>
-
-                    <button
-                      onClick={() => {
-                        setSortOption("name-desc");
-                        setShowSortMenu(false);
-                      }}
-                      className={`w-full flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 transition-colors text-left text-sm ${
-                        sortOption === "name-desc" ? "bg-[rgba(198,167,93,0.10)]" : ""
-                      }`}
-                    >
-                      <svg
-                        className="w-4 h-4"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M3 4h13M3 8h9m-9 4h9m5-4v12m0 0l-4 4m4-4l-4 4"
-                        />
-                      </svg>
-                      <span
-                        style={{
-                          color:
-                            sortOption === "name-desc"
-                              ? themeColors.primary
-                              : undefined,
-                        }}
-                      >
-                        Name: Z-A
-                      </span>
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
           {filteredChartTypes.length > 0 && (
             <div className="relative">
               <button
@@ -543,7 +307,10 @@ export const RenderChart = ({
               </button>
 
               {showTypeSelector && (
-                <div className="absolute right-0 top-full mt-2 bg-white border border-gray-200 rounded-lg shadow-lg z-10 min-w-64 max-h-72 overflow-y-auto">
+                <div
+                  dir="ltr"
+                  className="absolute end-0 top-full mt-2 bg-white border border-gray-200 rounded-lg shadow-lg z-50 min-w-64 max-h-72 overflow-y-auto"
+                >
                   {filteredChartTypes.map((type) => {
                     const Icon = type.icon;
                     const isSelected = selectedChartType === type.id;
@@ -591,19 +358,14 @@ export const RenderChart = ({
         </div>
       </div>
       <div className={chartContainerClasses}>
-        <ChartRenderer
-          chartType={chartState.chartType}
-          chartData={limitedChartData}
-          themeColors={themeColors}
-        />
-      </div>
-      {showingLimitedData && (
-        <div className="px-4 pb-3 text-center">
-          <p className="text-xs text-gray-600">
-            Showing first 4 of {totalDataCount} data points. Click "View Full Chart" to see all data.
-          </p>
+        <div className={isFullScreen ? "h-full w-full" : "h-full w-[80vw] md:min-w-[40rem] min-w-full"}>
+          <ChartRenderer
+            chartType={chartState.chartType}
+            chartData={chartState.chartData}
+            themeColors={themeColors}
+          />
         </div>
-      )}
+      </div>
     </div>
   );
 };

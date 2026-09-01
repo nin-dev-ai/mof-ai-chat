@@ -12,11 +12,13 @@ export const normalizeChatUiFeatures = (
   features?: Partial<ChatUiFeatures> | null,
 ): ChatUiFeatures => ({
   chatShareEnabled: features?.chatShareEnabled ?? true,
-  sharedTabEnabled: features?.sharedTabEnabled ?? true,
+  // Keep collaboration controls available even while a stale startup payload
+  // still sends the old disabled feature flags.
+  sharedTabEnabled: true,
   historySearchEnabled: features?.historySearchEnabled ?? true,
   historyFilterChipsEnabled: features?.historyFilterChipsEnabled ?? true,
   historyPinEnabled: features?.historyPinEnabled ?? true,
-  notificationsEnabled: features?.notificationsEnabled ?? true,
+  notificationsEnabled: true,
   languageToggleEnabled: features?.languageToggleEnabled ?? true,
 });
 

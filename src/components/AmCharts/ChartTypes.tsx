@@ -113,6 +113,103 @@ const formatDataLabel = (value: number): string => {
   }
 };
 
+const AXIS_TITLE_COLOR = am5.color(0x666666);
+
+const applyXyChartGutters = (
+  chart: am5xy.XYChart,
+  options?: { left?: number; right?: number; top?: number; bottom?: number }
+) => {
+  chart.setAll({
+    paddingLeft: options?.left ?? 90,
+    paddingRight: options?.right ?? 20,
+    paddingTop: options?.top ?? 24,
+    paddingBottom: options?.bottom ?? 56,
+  });
+  chart.plotContainer.set("maskContent", false);
+};
+
+const addCategoryValueAxisTitles = (
+  root: am5.Root,
+  xAxis: am5xy.Axis<am5xy.AxisRenderer>,
+  yAxis: am5xy.Axis<am5xy.AxisRenderer>,
+  xTitle: string,
+  yTitle: string,
+  options?: { yTitleAfterRenderer?: boolean }
+) => {
+  const yLabel = am5.Label.new(root, {
+    text: capitalize(yTitle),
+    rotation: -90,
+    fontWeight: "600",
+    fontSize: 12,
+    fill: AXIS_TITLE_COLOR,
+    y: am5.p50,
+    centerX: am5.p50,
+    centerY: am5.p50,
+  });
+
+  if (options?.yTitleAfterRenderer) {
+    yAxis.children.push(yLabel);
+  } else {
+    yAxis.children.unshift(yLabel);
+  }
+
+  xAxis.children.push(
+    am5.Label.new(root, {
+      text: capitalize(xTitle),
+      fontWeight: "600",
+      fontSize: 12,
+      fill: AXIS_TITLE_COLOR,
+      x: am5.p50,
+      centerX: am5.p50,
+      paddingTop: 12,
+    })
+  );
+};
+
+const addCenteredValueBullet = (
+  root: am5.Root,
+  series: am5xy.ColumnSeries,
+  options: {
+    valueKey: "valueY" | "valueX";
+    locationX: number;
+    locationY: number;
+    centerX?: number;
+    centerY?: number;
+    dx?: number;
+    dy?: number;
+    fill?: number;
+  }
+) => {
+  series.bullets.push(() => {
+    const bulletLabel = am5.Label.new(root, {
+      centerX: options.centerX ?? am5.p50,
+      centerY: options.centerY ?? am5.p50,
+      dx: options.dx ?? 0,
+      dy: options.dy ?? 0,
+      fontSize: 11,
+      fontWeight: "600",
+      fill: am5.color(options.fill ?? 0xffffff),
+      textAlign: "center",
+      direction: "ltr",
+      oversizedBehavior: "none",
+    });
+
+    bulletLabel.adapters.add("text", (_text, target) => {
+      const dataItem =
+        target.dataItem as am5.DataItem<am5xy.IColumnSeriesDataItem>;
+      const value = dataItem?.get(options.valueKey);
+      if (value === undefined || value === null) return "";
+      return formatDataLabel(Number(value));
+    });
+
+    return am5.Bullet.new(root, {
+      locationX: options.locationX,
+      locationY: options.locationY,
+      sprite: bulletLabel,
+    });
+  });
+};
+
 // Utility function to get responsive label settings
 const getResponsiveLabelSettings = (
   containerWidth: number,
@@ -224,6 +321,7 @@ export const LineChart = ({
           layout: root.verticalLayout,
         })
       );
+      applyXyChartGutters(chart, { top: 36, left: 90 });
 
       const containerWidth = container.width() || 600;
       const responsiveSettings = getResponsiveLabelSettings(
@@ -239,12 +337,13 @@ export const LineChart = ({
       });
 
       xAxisRenderer.labels.template.setAll({
-        oversizedBehavior: "wrap",
-        maxWidth: responsiveSettings.maxWidth as unknown as number,
-        fontSize: responsiveSettings.fontSize,
+        oversizedBehavior: "none",
+        fontSize: 11,
         textAlign: "center",
-        centerY: am5.p50,
-        rotation: responsiveSettings.rotation,
+        centerX: am5.p50,
+        centerY: 0,
+        paddingTop: 10,
+        rotation: Math.min(Math.abs(Number(responsiveSettings.rotation) || 30), 35) * -1,
         multiLocation: 0.5,
       });
 
@@ -266,44 +365,19 @@ export const LineChart = ({
 
       yAxisRenderer.labels.template.setAll({
         fontSize: "0.75em",
-        paddingRight: 10,
-        oversizedBehavior: "fit",
-        maxWidth: am5.percent(90) as unknown as number,
+        paddingRight: 8,
+        oversizedBehavior: "none",
       });
 
       const yAxis = chart.yAxes.push(
         am5xy.ValueAxis.new(root, {
           renderer: yAxisRenderer,
           numberFormat: "#,###.#a",
+          extraMax: 0.18,
         })
       );
 
-      // Axis Titles
-      xAxis.children.push(
-        am5.Label.new(root, {
-          text: capitalize(xField),
-          fontSize: 16,
-          fontWeight: "600",
-          x: am5.percent(50),
-          centerX: am5.p50,
-          fill: am5.color(0x666666),
-          paddingTop: 10,
-        })
-      );
-
-      yAxis.children.push(
-        am5.Label.new(root, {
-          text: capitalize(yField),
-          fontSize: 16,
-          fontWeight: "600",
-          rotation: -90,
-          centerY: am5.p50,
-          centerX: am5.p50,
-          fill: am5.color(0x666666),
-          x: am5.percent(-20),
-          y: am5.percent(50),
-        })
-      );
+      addCategoryValueAxisTitles(root, xAxis, yAxis, xField, yField);
 
       // Cursor
       const cursor = am5xy.XYCursor.new(root, {
@@ -414,10 +488,12 @@ export const LineChart = ({
         const bulletLabel = am5.Label.new(root, {
           centerY: am5.p100,
           centerX: am5.p50,
-          dy: -10,
-          fontSize: 12,
+          dy: -8,
+          fontSize: 11,
           fontWeight: "600",
-          paddingRight: 5,
+          textAlign: "center",
+          direction: "ltr",
+          populateText: false,
         });
 
         bulletLabel.adapters.add("text", function (text, target) {
@@ -433,13 +509,14 @@ export const LineChart = ({
         });
 
         return am5.Bullet.new(root, {
+          locationX: 0.5,
           locationY: 1,
           sprite: bulletLabel,
         });
       });
 
       // Scrollbar for large datasets
-      const visibleCount = 5;
+      const visibleCount = 4;
       const totalCount = lineData.length;
 
       if (totalCount >= visibleCount) {
@@ -468,7 +545,7 @@ export const LineChart = ({
       initial={{ opacity: 0, y: 50 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5, ease: "easeOut" }}
-      style={{ overflow: "hidden" }}
+      style={{ overflow: "visible", direction: "ltr" }}
     />
   );
 };
@@ -551,17 +628,17 @@ export const BarChart = ({
           layout: root.horizontalLayout,
         })
       );
+      applyXyChartGutters(chart, { left: 96, bottom: 56, top: 16, right: 64 });
 
       const yAxisRenderer = am5xy.AxisRendererY.new(root, {
-        minGridDistance: 40, // Increased spacing
+        minGridDistance: 20,
         cellStartLocation: 0.1,
         cellEndLocation: 0.9,
       });
       yAxisRenderer.labels.template.setAll({
-        fontSize: "0.75em", // Relative font size
-        paddingRight: 10,
-        oversizedBehavior: "wrap", // Better text handling
-        maxWidth: am5.percent(85) as unknown as number,
+        fontSize: 11,
+        paddingRight: 8,
+        oversizedBehavior: "none",
         textAlign: "right",
       });
 
@@ -589,35 +666,14 @@ export const BarChart = ({
         am5xy.ValueAxis.new(root, {
           renderer: xAxisRenderer,
           min: 0,
+          extraMax: 0.22,
           numberFormat: "#,###.#a",
         })
       );
 
-      const xAxisTitle = xAxis.children.push(
-        am5.Label.new(root, {
-          text: capitalize(yField),
-          fontSize: 16,
-          fontWeight: "600",
-          x: am5.percent(50),
-          centerX: am5.p50,
-          fill: am5.color(0x666666),
-          paddingTop: 10,
-          marginTop: 10,
-        })
-      );
-      const yAxisTitle = chart.children.push(
-        am5.Label.new(root, {
-          text: capitalize(xField),
-          fontWeight: "600",
-          fontSize: 16,
-          rotation: -90,
-          centerY: am5.p50,
-          y: am5.percent(50),
-          fill: am5.color(0x666666),
-          x: 0,
-          dx: 20,
-        })
-      );
+      addCategoryValueAxisTitles(root, xAxis, yAxis, yField, xField, {
+        yTitleAfterRenderer: true,
+      });
 
       const cursor = am5xy.XYCursor.new(root, {
         behavior: "zoomY",
@@ -748,38 +804,21 @@ export const BarChart = ({
           paddingRight: 14,
         });
 
-        newSeries.bullets.push(function () {
-          const bulletLabel = am5.Label.new(root, {
-            centerY: am5.p50,
-            centerX: am5.p50,
-            fontSize: 10,
-            fontWeight: "bold",
-            fill: am5.color(0xffffff),
-            paddingRight: 5,
-          });
-
-          bulletLabel.adapters.add("text", function (text, target) {
-            const dataItem =
-              target.dataItem as am5.DataItem<am5xy.IColumnSeriesDataItem>;
-            if (dataItem) {
-              const value = dataItem.get("valueX");
-              if (value !== undefined && value !== null) {
-                return formatDataLabel(value);
-              }
-            }
-            return "";
-          });
-
-          return am5.Bullet.new(root, {
-            sprite: bulletLabel,
-          });
+        addCenteredValueBullet(root, newSeries, {
+          valueKey: "valueX",
+          locationX: 1,
+          locationY: 0.5,
+          centerX: 0,
+          centerY: am5.p50,
+          dx: 8,
+          fill: 0x333333,
         });
 
         newSeries.data.setAll(data);
         newSeries.appear(1000);
       });
 
-      const visibleCount = 5;
+      const visibleCount = 4;
       const totalCount = data.length;
       if (totalCount >= visibleCount) {
         const scrollbarY = am5xy.XYChartScrollbar.new(root, {
@@ -806,7 +845,7 @@ export const BarChart = ({
       initial={{ opacity: 0, x: -50 }}
       animate={{ opacity: 1, x: 0 }}
       transition={{ duration: 0.5, ease: "easeOut" }}
-      style={{ overflow: "hidden" }}
+      style={{ overflow: "visible", direction: "ltr" }}
     />
   );
 };
@@ -836,9 +875,9 @@ export const ColumnChart = ({
           pinchZoomX: true,
           pinchZoomY: true,
           layout: root.verticalLayout,
-          paddingBottom: 20,
         })
       );
+      applyXyChartGutters(chart, { bottom: 60, left: 90, top: 20 });
 
       // Get responsive settings based on container width and data length
       const containerWidth = container.width() || 600;
@@ -848,17 +887,17 @@ export const ColumnChart = ({
       );
 
       const xAxisRenderer = am5xy.AxisRendererX.new(root, {
-        minGridDistance: responsiveSettings.minGridDistance,
+        minGridDistance: Math.max(responsiveSettings.minGridDistance, 50),
       });
       xAxisRenderer.labels.template.setAll({
-        centerY: am5.p50,
         centerX: am5.p50,
-        oversizedBehavior: "wrap",
-        maxWidth: responsiveSettings.maxWidth as unknown as number,
-        fontSize: responsiveSettings.fontSize,
-        paddingTop: 5,
-        rotation: responsiveSettings.rotation,
+        centerY: 0,
+        oversizedBehavior: "none",
+        fontSize: 11,
+        paddingTop: 10,
+        rotation: Math.min(Math.abs(Number(responsiveSettings.rotation) || 30), 35) * -1,
         multiLocation: 0.5,
+        textAlign: "center",
       });
 
       const xAxis = chart.xAxes.push(
@@ -889,49 +928,20 @@ export const ColumnChart = ({
         minGridDistance: 40, // Better spacing
       });
       yAxisRenderer.labels.template.setAll({
-        fontSize: "0.75em", // Relative font size
-        paddingRight: 10,
-        oversizedBehavior: "fit",
-        maxWidth: am5.percent(90) as unknown as number,
+        fontSize: "0.75em",
+        paddingRight: 8,
+        oversizedBehavior: "none",
       });
 
       const yAxis = chart.yAxes.push(
         am5xy.ValueAxis.new(root, {
           renderer: yAxisRenderer,
           min: 0,
+          extraMax: 0.14,
           numberFormat: "#,###.#a",
         })
       );
-      const xAxisTitle = xAxis.children.push(
-        am5.Label.new(root, {
-          text: capitalize(xField),
-          fontSize: 16,
-          fontWeight: "600",
-          x: am5.percent(50),
-          centerX: am5.p50,
-          centerY: am5.p0,
-          y: am5.percent(100),
-          fill: am5.color(0x666666),
-          paddingTop: 0,
-          marginTop: 0,
-          dy: -8,
-        })
-      );
-
-      const yAxisTitle = yAxis.children.push(
-        am5.Label.new(root, {
-          text: capitalize(yField),
-          fontWeight: "600",
-          fontSize: 16,
-          rotation: -90,
-          centerY: am5.p50,
-          centerX: am5.p50,
-          fill: am5.color(0x666666),
-          x: am5.percent(-20),
-          y: am5.percent(50),
-          paddingRight: 10,
-        })
-      );
+      addCategoryValueAxisTitles(root, xAxis, yAxis, xField, yField);
 
       const cursor = am5xy.XYCursor.new(root, {
         behavior: "zoomX",
@@ -987,8 +997,12 @@ export const ColumnChart = ({
           fillGradient: gradient,
           strokeWidth: 0,
           strokeOpacity: 0,
+          cornerRadiusTL: 4,
+          cornerRadiusTR: 4,
           cornerRadiusBL: 0,
           cornerRadiusBR: 0,
+          width: am5.percent(62),
+          centerX: am5.p50,
           shadowColor: am5.color(0x000000),
           shadowBlur: 8,
           shadowOffsetX: 0,
@@ -1055,38 +1069,19 @@ export const ColumnChart = ({
           paddingRight: 14,
         });
 
-        newSeries.bullets.push(function () {
-          const bulletLabel = am5.Label.new(root, {
-            centerY: am5.p50,
-            centerX: am5.p50,
-            fontSize: 12,
-            fontWeight: "bold",
-            fill: am5.color(0xffffff),
-            paddingRight: 5,
-          });
-
-          bulletLabel.adapters.add("text", function (text, target) {
-            const dataItem =
-              target.dataItem as am5.DataItem<am5xy.IColumnSeriesDataItem>;
-            if (dataItem) {
-              const value = dataItem.get("valueY");
-              if (value !== undefined && value !== null) {
-                return formatDataLabel(value);
-              }
-            }
-            return "";
-          });
-
-          return am5.Bullet.new(root, {
-            locationY: 0.5,
-            sprite: bulletLabel,
-          });
+        addCenteredValueBullet(root, newSeries, {
+          valueKey: "valueY",
+          locationX: 0.5,
+          locationY: 0.5,
+          centerX: am5.p50,
+          centerY: am5.p50,
+          fill: 0xffffff,
         });
 
         newSeries.data.setAll(data);
         newSeries.appear(1000);
       });
-      const visibleCount = 5;
+      const visibleCount = 4;
       const totalCount = data.length;
 
       if (totalCount >= visibleCount) {
@@ -1114,7 +1109,7 @@ export const ColumnChart = ({
       initial={{ opacity: 0, y: 50 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5, ease: "easeOut" }}
-      style={{ overflow: "hidden" }}
+      style={{ overflow: "visible", direction: "ltr" }}
     />
   );
 };

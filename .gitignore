@@ -4,8 +4,17 @@ dist
 dist2
 coverage
 
-# Local tooling
+# Deployment and workflow artifacts are maintained separately from this frontend.
 .netlify
+netlify/
+netlify.toml
+n8n workflows/
+mof workflows/
+gotrue.yaml
+gotrue.sql
+Dockerfile.gotrue
+
+# Local tooling
 .charttest
 .DS_Store
 npm-debug.log*

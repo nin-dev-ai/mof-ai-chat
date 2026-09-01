@@ -14,10 +14,9 @@ import {
   XMarkIcon,
   UserGroupIcon,
   CheckIcon,
-  ChartBarIcon,
   ChartPieIcon,
+  ChartBarIcon,
   ChevronDownIcon,
-  ArrowPathIcon,
   ArrowRightIcon,
   DocumentTextIcon,
   ClipboardDocumentCheckIcon,
@@ -81,7 +80,7 @@ import SpeechRecognition, {
 import WaveformVisualizer from "./WaveformVisualizer";
 import AudioStopIcon from "../assets/icons/AudioStopIcon";
 import CompletedIcon from "../assets/icons/completed.svg";
-import { ChartState, RenderChart } from "./AmCharts/Amchart";
+import { ChartState, RenderChart, resolveInitialChartType } from "./AmCharts/Amchart";
 import { any } from "@amcharts/amcharts5/.internal/core/util/Array";
 import AttachedFilesPreview, { AttachmentPreviewFile } from "./AttachedFilesPreview";
 import SearchWeb from "./SearchWeb";
@@ -98,6 +97,69 @@ interface ApiConfig {
   baseUrl: string;
   headers?: Record<string, string>;
 }
+
+const ARABIC_CHAT_LOCK_MESSAGES: Record<string, string> = {
+  "Working on it...": "جاري العمل ...",
+  "Just a moment...": "بالرجاء الانتظار ...",
+  "One moment...": "بالرجاء الانتظار ...",
+  "Processing...": "جاري المعالجة ...",
+  "Thinking...": "جاري التفكير ...",
+  "Getting things ready...": "جاري التجهيز ...",
+  "On it...": "جاري العمل ...",
+  "Preparing...": "جاري التحضير ...",
+  "Working on that...": "جاري العمل ...",
+  "Give me a moment...": "بالرجاء الانتظار ...",
+  "Getting this ready...": "جاري التجهيز ...",
+  "Almost there...": "لحظات ...",
+  "Just a second...": "بالرجاء الانتظار ...",
+  "Taking a look...": "قيد التحليل ...",
+  "Checking...": "قيد التحليل ...",
+  "Getting started...": "جاري البدء ...",
+  "Working through it...": "جاري العمل ...",
+  "Coming right up...": "جاري التحضير ...",
+  "Just working on that...": "جاري التحضير ...",
+  "Preparing a response...": "جاري التحضير ...",
+  "Loading your files...": "جاري تحميل ملفاتك ...",
+  "Reading document...": "جاري قراءة المستند ...",
+  "Analyzing image...": "جاري تحليل الصورة ...",
+  "Processing data...": "جاري معالجة البيانات ...",
+  "Preparing your response...": "جاري تحضير الرد ...",
+  "Thinking through your files...": "جاري تحليل ملفاتك ...",
+  "Analyzing your data question...": "جاري تحليل سؤالك حول البيانات ...",
+  "Processing documents for retrieval...": "جاري معالجة المستندات للاسترجاع ...",
+  "Searching documents...": "جاري البحث في المستندات ...",
+  "Analyzing retrieved evidence...": "جاري تحليل المعلومات المسترجعة ...",
+};
+
+const localizeChatLockMessage = (message: string, isArabic: boolean): string =>
+  isArabic
+    ? ARABIC_CHAT_LOCK_MESSAGES[message.trim().replace(/…/g, "...")] ?? message
+    : message;
+
+const ARABIC_CATEGORY_NAMES: Record<string, string> = {
+  "General Services": "الخدمات العامة",
+  "Procurement Services": "خدمات المشتريات",
+};
+
+const ARABIC_SERVICE_NAMES: Record<string, string> = {
+  "Inquiry Bot": "روبوت الاستفسارات",
+  "Meeting Summarization": "تلخيص الاجتماعات",
+  "Presentation Generation": "إنشاء العروض التقديمية",
+  Translation: "الترجمة",
+  "RFP / Proposal Summarization": "تلخيص طلبات العروض",
+  "RFP Summarizer": "تلخيص طلبات العروض",
+  "Proposal Summarization": "تلخيص طلبات العروض",
+};
+
+const applyArabicServiceNames = (startup: StartupData): StartupData => {
+  startup.categories.forEach((category) => {
+    category.nameAr = ARABIC_CATEGORY_NAMES[category.nameEn] ?? category.nameAr;
+    category.services.forEach((service) => {
+      service.nameAr = ARABIC_SERVICE_NAMES[service.nameEn] ?? service.nameAr;
+    });
+  });
+  return startup;
+};
 
 export interface Message {
   id: string;
@@ -133,6 +195,7 @@ interface ServiceViewModel {
   icon?: React.ReactNode;
   micRecordingAllowed: boolean;
   sharable?: boolean;
+  isPhaseTwo?: boolean;
 }
 
 export interface ChatCurrentUser {
@@ -238,6 +301,7 @@ export const WeaveAiChat: React.FC<WeaveAiChatProps> = ({
   const [inputValue, setInputValue] = useState("");
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
   const [attachmentError, setAttachmentError] = useState("");
+  const [isDraggingAttachments, setIsDraggingAttachments] = useState(false);
   const [userMessageAttachedFiles, setUserMessageAttachedFiles] = useState<{
     [messageId: string]: AttachmentPreviewFile[];
   }>({});
@@ -302,11 +366,15 @@ export const WeaveAiChat: React.FC<WeaveAiChatProps> = ({
   const [IsReocordingStop, setIsReocordingStop] = useState(false);
   const { i18n } = useTranslation();
   const { t } = useTranslation();
+  const isArabicUi = IsArabicLanguage || i18n.language?.toLowerCase().startsWith("ar");
   const typewriterIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const submitInFlightRef = useRef(false);
   const socketServiceRef = useRef<SocketService | null>(null);
   const socketHandlersAttachedRef = useRef(false);
   const socketConnectSessionRef = useRef<string | null>(null);
+  // History requests can finish out of order when a user switches chats quickly.
+  // Only the most recently selected conversation may update the visible chat.
+  const historyLoadRequestRef = useRef(0);
   const recentSocketReplyRef = useRef<Map<string, number>>(new Map());
   const handleWebSocketMessageRef = useRef<(message: WebSocketMessage) => void>(
     () => {}
@@ -314,24 +382,6 @@ export const WeaveAiChat: React.FC<WeaveAiChatProps> = ({
   const [activeN8nSessionId, setActiveN8nSessionId] = useState<string | null>(null);
   const [chatLockMessage, setChatLockMessage] = useState("");
   const [chatLockAnimation, setChatLockAnimation] = useState("default");
-
-  const [isLandscape, setIsLandscape] = useState(false);
-
-  useEffect(() => {
-    const mediaQuery = window.matchMedia("(orientation: landscape)");
-
-    const handleOrientationChange = (e: any) => {
-      setIsLandscape(e.matches);
-    };
-
-    setIsLandscape(mediaQuery.matches);
-
-    mediaQuery.addEventListener("change", handleOrientationChange);
-
-    return () => {
-      mediaQuery.removeEventListener("change", handleOrientationChange);
-    };
-  }, []);
 
   const [chartsState, setChartsState] = useState<Record<number, ChartState>>(
     {}
@@ -434,14 +484,16 @@ export const WeaveAiChat: React.FC<WeaveAiChatProps> = ({
 
     return (
       <div className={twMerge("flex items-center gap-2", className)}>
-        <NotificationBell
-          isArabic={IsArabicLanguage}
-          userEmail={userEmail}
-          apiConfig={apiConfig}
-          themeColors={themeColors}
-          onSelectNotification={handleNotificationSelect}
-          onOpenShared={() => sidebarRef.current?.openChatById("")}
-        />
+        {chatUiFeatures.notificationsEnabled && (
+          <NotificationBell
+            isArabic={IsArabicLanguage}
+            userEmail={userEmail}
+            apiConfig={apiConfig}
+            themeColors={themeColors}
+            onSelectNotification={handleNotificationSelect}
+            onOpenShared={() => sidebarRef.current?.openChatById("")}
+          />
+        )}
         {showLanguageToggle && (
           <LanguageToggle
             isArabic={IsArabicLanguage}
@@ -563,7 +615,10 @@ export const WeaveAiChat: React.FC<WeaveAiChatProps> = ({
               const messageId =
                 contentdata?.aiMessageId?.toString() ?? Date.now().toString();
               const statusText = contentdata?.chatLock
-                ? contentdata.statusBar
+                ? localizeChatLockMessage(
+                    String(contentdata.statusBar ?? ""),
+                    isArabicUi,
+                  )
                 : contentdata?.output;
 
               let isExistingMessage = false;
@@ -766,7 +821,7 @@ export const WeaveAiChat: React.FC<WeaveAiChatProps> = ({
         } = sessionDetails;
 
         if (lockMessage) {
-          setChatLockMessage(lockMessage);
+          setChatLockMessage(localizeChatLockMessage(lockMessage, isArabicUi));
         }
         if (lockAnimation) {
           setChatLockAnimation(lockAnimation);
@@ -839,7 +894,7 @@ export const WeaveAiChat: React.FC<WeaveAiChatProps> = ({
             [Number(aiMessageId)]: {
               chartDisplay: true,
               chartData: sessionDetails.chartData,
-              chartType: sessionDetails.chartType,
+              chartType: resolveInitialChartType(sessionDetails.chartType),
               altType: sessionDetails.altType,
               messageID: Number(aiMessageId),
             },
@@ -916,7 +971,7 @@ export const WeaveAiChat: React.FC<WeaveAiChatProps> = ({
         }
       }
     },
-    [startupData, activeService, messages]
+    [startupData, activeService, messages, isArabicUi]
   );
 
   handleWebSocketMessageRef.current = handleWebSocketMessage;
@@ -1178,7 +1233,7 @@ export const WeaveAiChat: React.FC<WeaveAiChatProps> = ({
                     [messageID]: {
                       chartDisplay,
                       chartData,
-                      chartType,
+                      chartType: resolveInitialChartType(chartType),
                       altType,
                       messageID,
                     },
@@ -1277,7 +1332,12 @@ export const WeaveAiChat: React.FC<WeaveAiChatProps> = ({
 
             if (response.sessionDetails?.chatLock) {
               if (response.sessionDetails.chatLockMessage) {
-                setChatLockMessage(response.sessionDetails.chatLockMessage);
+                setChatLockMessage(
+                  localizeChatLockMessage(
+                    response.sessionDetails.chatLockMessage,
+                    isArabicUi,
+                  ),
+                );
               }
               if (response.sessionDetails.chatLockAnimation) {
                 setChatLockAnimation(response.sessionDetails.chatLockAnimation);
@@ -1326,11 +1386,11 @@ export const WeaveAiChat: React.FC<WeaveAiChatProps> = ({
           }
         } catch (error) {
           console.error("Error sending message:", error);
-          if (attachedFiles.length > 0) {
+          if (filesToSend.length > 0) {
             setAttachmentError(
-              error instanceof Error
-                ? error.message
-                : "The file and message could not be sent to n8n.",
+              IsArabicLanguage
+                ? "حدث خطأ أثناء رفع الملف. يرجى المحاولة مرة أخرى."
+                : "An error occurred while uploading the file. Please try again.",
             );
           }
           // Add error message
@@ -1575,6 +1635,7 @@ export const WeaveAiChat: React.FC<WeaveAiChatProps> = ({
   };
 
   const handleOpenEditor = () => {
+    historyLoadRequestRef.current += 1;
     setIsAiResponding(false);
     setAttachedFiles([]);
     setIsExploringServices(false);
@@ -1608,6 +1669,7 @@ export const WeaveAiChat: React.FC<WeaveAiChatProps> = ({
         );
         const startupResponse = await backendService.getStartupData();
         const startup = startupResponse.data;
+        applyArabicServiceNames(startup);
         startup.allServices = startup.categories.flatMap((category) => category.services);
         startup.chatUiFeatures = normalizeChatUiFeatures(startup.chatUiFeatures);
         startup.webSocketEnabled = startup.webSocketEnabled ?? true;
@@ -1694,11 +1756,37 @@ export const WeaveAiChat: React.FC<WeaveAiChatProps> = ({
     return name.includes("document q&a") || name.includes("proposal evaluation");
   };
 
+  const isRetiredService = (service: ApiService) => {
+    const name = `${service.nameEn ?? ""} ${service.nameAr ?? ""}`.toLowerCase();
+    return (
+      name.includes("document q&a") ||
+      name.includes("document qa") ||
+      name.includes("email drafting") ||
+      name.includes("procurement") ||
+      name.includes("proposal evaluation")
+    );
+  };
+
+  const phaseTwoRfpService: ServiceViewModel = {
+    id: -100,
+    title: IsArabicLanguage ? "تلخيص طلبات العروض" : "RFP Summarizer",
+    description: IsArabicLanguage
+      ? "تلخيص طلبات العروض واستخراج المتطلبات الرئيسية بسرعة."
+      : "Summarize RFPs and extract their key requirements quickly.",
+    category: "General Services",
+    nameEn: "RFP Summarizer",
+    questions: [],
+    micRecordingAllowed: false,
+    sharable: false,
+    isPhaseTwo: true,
+  };
+
   // Filter and map services based on the active tab and search query
-  const filteredServices =
-    startupData?.categories
+  const filteredServices = (() => {
+    const services = startupData?.categories
       .find((category) => category.nameEn === activeTab)
       ?.services.filter((service) => {
+        if (isRetiredService(service)) return false;
         const q = (searchQuery || "").toLowerCase().trim();
         if (!q) return true;
         return (
@@ -1711,6 +1799,15 @@ export const WeaveAiChat: React.FC<WeaveAiChatProps> = ({
       .map((service) =>
         mapServiceToViewModel(service, activeTab, service.questions)
       ) || [];
+
+    const isGeneralServices = activeTab.toLowerCase().includes("general");
+    const query = (searchQuery || "").toLowerCase().trim();
+    const showPhaseTwoRfp =
+      isGeneralServices &&
+      (!query || "rfp summarizer".includes(query) || "تلخيص طلبات العروض".includes(query));
+
+    return showPhaseTwoRfp ? [...services, phaseTwoRfpService] : services;
+  })();
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -1844,6 +1941,7 @@ export const WeaveAiChat: React.FC<WeaveAiChatProps> = ({
   // };
 
   const handleServiceClick = (serviceId: number) => {
+    historyLoadRequestRef.current += 1;
     setAttachedFiles([]);
     setIsMessageSubmited(false);
     setUserHasStartedChat(false);
@@ -1955,6 +2053,7 @@ export const WeaveAiChat: React.FC<WeaveAiChatProps> = ({
     // A new visible chat must also be a new persisted chat. Keeping any of
     // these values would send the next message (and Share action) to the
     // previously opened conversation.
+    historyLoadRequestRef.current += 1;
     setIsShareModalOpen(false);
     setActiveChatSessionId(undefined);
     localStorage.removeItem("ActiveChatSessionId");
@@ -2385,17 +2484,6 @@ export const WeaveAiChat: React.FC<WeaveAiChatProps> = ({
     setSpeakingMessageId(null);
   }, []);
 
-  const handleRegenerateMessage = (aiMessage: Message) => {
-    const idx = messages.findIndex((m) => m.id === aiMessage.id);
-    if (idx < 0 || isAiResponding) return;
-    const previousUser = [...messages.slice(0, idx)]
-      .reverse()
-      .find((m) => m.isUser);
-    if (!previousUser?.text) return;
-    setMessages((prev) => prev.filter((m) => m.id !== aiMessage.id));
-    void handleSendMessage(previousUser.text, { skipUserMessage: true });
-  };
-
   const renderMessageActions = (message: Message) => (
     <div className="flex items-center gap-2">
       {(startupData?.likeDisLikeAllowed ?? true) && (
@@ -2444,7 +2532,7 @@ export const WeaveAiChat: React.FC<WeaveAiChatProps> = ({
               ? "text-[#C6A75D]"
               : "text-[#98A2B3] hover:text-[#667085]"
           )}
-          onClick={() => handleCopyMessage(message.text, message.id)}
+          onClick={() => handleCopyMessage(stripMarkdown(message.text), message.id)}
           title={copiedMessageId === message.id ? "Copied!" : "Copy message"}
         >
           {copiedMessageId === message.id ? (
@@ -2471,18 +2559,6 @@ export const WeaveAiChat: React.FC<WeaveAiChatProps> = ({
           )}
         </div>
       )}
-      <div
-        role="button"
-        tabIndex={0}
-        className="p-1 text-[#98A2B3] hover:text-[#667085] transition-colors cursor-pointer"
-        onClick={() => handleRegenerateMessage(message)}
-        title="Regenerate"
-      >
-        <ArrowPathIcon
-          className="w-3.5 h-3.5"
-          style={{ color: themeColors.primary }}
-        />
-      </div>
     </div>
   );
 
@@ -2670,12 +2746,8 @@ export const WeaveAiChat: React.FC<WeaveAiChatProps> = ({
   };
 
   const allowedExtensions = ["PDF", "DOCX", "CSV", "JPG", "JPEG", "PNG", "PPTX"];
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files?.length) return;
-
-    const fileArray = Array.from(files);
-    e.target.value = "";
+  const addChatFiles = (fileArray: File[]) => {
+    if (!fileArray.length) return;
 
     const oversizedFiles = fileArray.filter(
       (file) => !isChatAttachmentWithinSize(file),
@@ -2739,11 +2811,48 @@ export const WeaveAiChat: React.FC<WeaveAiChatProps> = ({
     });
   };
 
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const fileArray = Array.from(e.target.files ?? []);
+    // Resetting allows the same file to be selected again after removal.
+    e.target.value = "";
+    addChatFiles(fileArray);
+  };
+
+  const isFileDrag = (event: React.DragEvent) =>
+    Array.from(event.dataTransfer.types).includes("Files");
+
+  const handleAttachmentDragEnter = (event: React.DragEvent<HTMLDivElement>) => {
+    if (!isFileDrag(event) || isAiResponding || isLoading) return;
+    event.preventDefault();
+    setIsDraggingAttachments(true);
+  };
+
+  const handleAttachmentDragOver = (event: React.DragEvent<HTMLDivElement>) => {
+    if (!isFileDrag(event) || isAiResponding || isLoading) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+  };
+
+  const handleAttachmentDragLeave = (event: React.DragEvent<HTMLDivElement>) => {
+    if (event.currentTarget.contains(event.relatedTarget as Node)) return;
+    setIsDraggingAttachments(false);
+  };
+
+  const handleAttachmentDrop = (event: React.DragEvent<HTMLDivElement>) => {
+    if (!isFileDrag(event)) return;
+    event.preventDefault();
+    setIsDraggingAttachments(false);
+    if (isAiResponding || isLoading) return;
+    addChatFiles(Array.from(event.dataTransfer.files));
+  };
+
   const removeFile = (fileName: File) => {
-    console.log("fileName", fileName);
-    setAttachedFiles(
-      attachedFiles.filter((file) => file.name !== fileName.name)
+    setAttachedFiles((currentFiles) =>
+      currentFiles.filter((file) => file !== fileName)
     );
+    // Validation errors describe the current attachment selection. Once the
+    // user removes a file, do not leave a stale size/count warning visible.
+    setAttachmentError("");
   };
 
   const handleSelect = (option: "attachment" | "search") => {
@@ -2760,17 +2869,16 @@ export const WeaveAiChat: React.FC<WeaveAiChatProps> = ({
     document.dispatchEvent(event);
   };
 
-  function ViewChartClick(message: Message) {
-    setChartModal({
-      isOpen: true,
-      chartState: chartsState[Number(message.id)],
-      messageId: message.id,
-    });
-  }
   function DisplayCharts(message: Message) {
+    const openFullChart = () =>
+      setChartModal({
+        isOpen: true,
+        chartState: chartsState[Number(message.id)],
+        messageId: message.id,
+      });
+
     return (
-      <div>
-        {/* Desktop: Show Inline Chart + Button */}
+      <div className="overflow-visible w-full">
         <div className="hidden sm:block">
           <RenderChart
             chartState={chartsState[Number(message.id)]}
@@ -2786,16 +2894,9 @@ export const WeaveAiChat: React.FC<WeaveAiChatProps> = ({
             themeColors={themeColors}
           />
 
-          {/* View Full Chart Button for Desktop */}
           <div className="mt-3 flex justify-center">
             <button
-              onClick={() =>
-                setChartModal({
-                  isOpen: true,
-                  chartState: chartsState[Number(message.id)],
-                  messageId: message.id,
-                })
-              }
+              onClick={openFullChart}
               className="flex items-center gap-2 px-4 py-2 bg-white border-2 rounded-lg hover:shadow-md transition-all duration-200"
               style={{
                 borderColor: themeColors.primary,
@@ -2804,29 +2905,26 @@ export const WeaveAiChat: React.FC<WeaveAiChatProps> = ({
             >
               <ChartBarIcon className="w-4 h-4" />
               <span className="font-medium text-sm">{t("ViewFullChart")}</span>
-              <div className="ml-2">
-                <svg
-                  className="w-3 h-3"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
-                  />
-                </svg>
-              </div>
+              <svg
+                className="w-3 h-3 ml-2"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
+                />
+              </svg>
             </button>
           </div>
         </div>
 
-        {/* Mobile: Show Only Button */}
         <button
-          onClick={() => ViewChartClick(message)}
-          className="md:hidden flex items-center gap-3 px-4 py-3 bg-white border-2 rounded-lg hover:shadow-md transition-all duration-200 w-full"
+          onClick={openFullChart}
+          className="sm:hidden flex items-center gap-3 px-4 py-3 bg-white border-2 rounded-lg hover:shadow-md transition-all duration-200 w-full"
           style={{
             borderColor: themeColors.primary,
             color: themeColors.primary,
@@ -2834,21 +2932,19 @@ export const WeaveAiChat: React.FC<WeaveAiChatProps> = ({
         >
           <ChartBarIcon className="w-5 h-5" />
           <span className="font-medium">{t("ViewChart")}</span>
-          <div className="ml-auto">
-            <svg
-              className="w-4 h-4"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
-              />
-            </svg>
-          </div>
+          <svg
+            className="w-4 h-4 ml-auto"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
+            />
+          </svg>
         </button>
       </div>
     );
@@ -2875,9 +2971,12 @@ export const WeaveAiChat: React.FC<WeaveAiChatProps> = ({
             {(() => {
               const animationType = chatLockAnimation || "default";
               const message =
-                chatLockMessage ||
+                localizeChatLockMessage(chatLockMessage, isArabicUi) ||
                 (chatData?.isProcessed
-                  ? Contentdata.statusBar
+                  ? localizeChatLockMessage(
+                      String(Contentdata.statusBar ?? ""),
+                      isArabicUi,
+                    )
                   : t("AnalyzingYourRequestWithDots"));
 
               let effectiveAnimation = animationType;
@@ -2989,17 +3088,32 @@ export const WeaveAiChat: React.FC<WeaveAiChatProps> = ({
 
       <div
         className="chatgpt-input-wrapper w-full max-w-[800px] mx-auto relative rounded-full"
+        onDragEnter={handleAttachmentDragEnter}
+        onDragOver={handleAttachmentDragOver}
+        onDragLeave={handleAttachmentDragLeave}
+        onDrop={handleAttachmentDrop}
+        aria-label={IsArabicLanguage ? "اسحب الملفات لإرفاقها" : "Drop files to attach"}
         style={{
-          border: isFocused
+          border: isDraggingAttachments
+            ? `2px dashed ${themeColors.primary}`
+            : isFocused
             ? `1px solid ${themeColors.primary}`
             : "1px solid #E8DEC8",
-          boxShadow: isFocused
+          boxShadow: isDraggingAttachments || isFocused
             ? `0 0 0 3px ${themeColors.primary}24, 0 6px 18px rgba(16, 24, 40, 0.08)`
             : "0 4px 14px rgba(16, 24, 40, 0.06)",
           backgroundColor: "#FFFCFA",
           transition: "box-shadow 0.2s ease, border-color 0.2s ease",
         }}
       >
+        {isDraggingAttachments && (
+          <div
+            className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-full bg-white/85 text-sm font-semibold"
+            style={{ color: themeColors.primary }}
+          >
+            {IsArabicLanguage ? "أفلت الملفات لإرفاقها" : "Drop files to attach"}
+          </div>
+        )}
         <div className="flex w-full items-center ps-3 pe-2 py-1.5 gap-1">
           {!isListening && !IsMessageSubmited && (
             <button
@@ -3128,7 +3242,6 @@ export const WeaveAiChat: React.FC<WeaveAiChatProps> = ({
                     strokeWidth="2.4"
                     strokeLinecap="round"
                     strokeLinejoin="round"
-                    style={{ transform: IsArabicLanguage ? "rotate(180deg)" : undefined }}
                   >
                     <path d="M12 19V5M5 12l7-7 7 7"/>
                   </svg>
@@ -3176,164 +3289,6 @@ export const WeaveAiChat: React.FC<WeaveAiChatProps> = ({
       <div className="w-full flex flex-col align-items-start" />
     </motion.div>
   );
-
-const RenderChartFullScreen = () => {
-  return (
-    <AnimatePresence>
-      {chartModal.isOpen && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-0 sm:p-4"
-          onClick={() =>
-            setChartModal({ isOpen: false, chartState: null, messageId: "" })
-          }
-        >
-        {/* 🖥️ Desktop / Tablet Layout (hidden on mobile) */}
-<motion.div
-  initial={{ scale: 0.9, opacity: 0 }}
-  animate={{ scale: 1, opacity: 1 }}
-  exit={{ scale: 0.9, opacity: 0 }}
-  onClick={(e) => e.stopPropagation()}
-  className="hidden sm:flex flex-col bg-white rounded-xl shadow-2xl w-full max-w-6xl h-[90vh]"
->
-  {/* Header */}
-  <div className="flex items-center justify-between p-4 border-b border-gray-200">
-    <h3 className="text-lg font-semibold text-gray-900">{t("ChartView")}</h3>
-    <button
-      onClick={() =>
-        setChartModal({
-          isOpen: false,
-          chartState: null,
-          messageId: "",
-        })
-      }
-      className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-    >
-      <XMarkIcon className="w-6 h-6 text-gray-500" />
-    </button>
-  </div>
-
-  {/* Instructions */}
-  <div className="flex flex-wrap gap-4 px-4 py-2 text-xs text-gray-600 border-b border-gray-100">
-    <div className="flex items-center gap-1">
-      <svg className="w-4 h-4" fill="none" stroke={themeColors.primary} viewBox="0 0 24 24">
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth={2}
-          d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122"
-        />
-      </svg>
-      <span>{t("Click&DragToPan")}</span>
-    </div>
-    <div className="flex items-center gap-1">
-      <svg className="w-4 h-4" fill="none" stroke={themeColors.primary} viewBox="0 0 24 24">
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth={2}
-          d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7"
-        />
-      </svg>
-      <span>{t("ScrollToZoom")}</span>
-    </div>
-    <div className="flex items-center gap-1">
-      <svg className="w-4 h-4" fill="none" stroke={themeColors.primary} viewBox="0 0 24 24">
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth={2}
-          d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-        />
-      </svg>
-      <span>{t("HoverForDetails")}</span>
-    </div>
-  </div>
-
-  {/* Chart Area */}
-  <div className="flex justify-center items-center flex-grow p-4 overflow-auto">
-    {chartModal.chartState && (
-      <RenderChart
-        chartState={
-          chartsState[Number(chartModal.messageId)] || chartModal.chartState
-        }
-        setChartState={(newState) => {
-          const updatedState =
-            typeof newState === "function"
-              ? newState(
-                  chartsState[Number(chartModal.messageId)] ||
-                    chartModal.chartState
-                )
-              : newState;
-
-          setChartsState((prev) => ({
-            ...prev,
-            [chartModal.messageId]: updatedState,
-          }));
-          setChartModal((prev) => ({
-            ...prev,
-            chartState: updatedState,
-          }));
-        }}
-        themeColors={themeColors}
-        isFullScreen={true}
-        isLandscape={isLandscape}
-      />
-    )}
-  </div>
-</motion.div>
-
-{/* 📱 Mobile Layout (hidden on larger screens) */}
-  <motion.div
-  initial={{ scale: 0.9, opacity: 0 }}
-  animate={{ scale: 1, opacity: 1 }}
-  exit={{ scale: 0.9, opacity: 0 }}
-  onClick={(e) => e.stopPropagation()}
-  className="flex sm:hidden flex-col bg-white rounded-xl shadow-2xl w-full h-full max-h-screen"
->
-  {/* Mobile Header with Close Button */}
-
-    <div className="flex flex-col w-full flex-1 min-h-0 overflow-hidden p-2 pt-12">
-      <RenderChart
-        chartState={
-          chartsState[Number(chartModal.messageId)] || chartModal.chartState
-        }
-        setChartState={(newState) => {
-          const updatedState =
-            typeof newState === "function"
-              ? newState(
-                  chartsState[Number(chartModal.messageId)] ||
-                    chartModal.chartState
-                )
-              : newState;
-
-          setChartsState((prev) => ({
-            ...prev,
-            [chartModal.messageId]: updatedState,
-          }));
-          setChartModal((prev) => ({
-            ...prev,
-            chartState: updatedState,
-          }));
-        }}
-        themeColors={themeColors}
-        isFullScreen={true}
-        isLandscape={isLandscape}
-        onclose={()=>{setChartModal({
-          isOpen: false,
-          chartState: null,
-          messageId: "",
-        })}}
-      />
-    </div>
-</motion.div>
-        </motion.div>
-      )}
-    </AnimatePresence>
-  );
-};
 
   const RenderRecommendationItems = (IsSeriveSuggestions: boolean = false) => {
     if (isLoading || !startupData?.suggestions?.length) return null;
@@ -3421,7 +3376,7 @@ const RenderChartFullScreen = () => {
                   />
                 </div>
               )}
-              <div className={`flex flex-col gap-2 max-w-[80%] `}>
+              <div className={`flex flex-col gap-2 max-w-[80%] overflow-visible`}>
                 <div
                   className={twMerge(
                     " min-w-[min-content] p-4 text-white rounded-tl-2xl rounded-bl-2xl rounded-br-2xl",
@@ -3705,6 +3660,7 @@ const RenderChartFullScreen = () => {
   };
 
   const fetchChatHistoryDetail = async (chatSession: ChatSession) => {
+    const requestId = ++historyLoadRequestRef.current;
     IsMobile && setIsSidebarCollapsed(true);
     setAttachedFiles([]);
     const backendService = new BackendService(
@@ -3712,6 +3668,10 @@ const RenderChartFullScreen = () => {
       apiConfig.headers
     );
     const response = await backendService.getChatHistoryDetail(chatSession.id);
+    // Ignore a response for a conversation the user has already navigated away
+    // from. Without this guard, a slower earlier request can replace the newer
+    // conversation with an empty or unrelated history.
+    if (requestId !== historyLoadRequestRef.current) return;
     // Handle the chatHistoryDetails as needed
     if (response.success && response.data) {
       const service =
@@ -3781,10 +3741,10 @@ const RenderChartFullScreen = () => {
           if (storedChart?.chartDisplay && storedChart?.chartData) {
             charts[detail.id] = {
               chartDisplay: true,
-              chartType: Number(storedChart.chartType),
+              chartType: resolveInitialChartType(storedChart.chartType),
               altType: Array.isArray(storedChart.altType)
                 ? storedChart.altType.map(Number)
-                : [1, 12, 13],
+                : [13, 12, 1],
               chartData: storedChart.chartData,
               messageID: detail.id,
             };
@@ -4133,10 +4093,12 @@ const RenderChartFullScreen = () => {
                     return (
                       <button
                         key={service.id}
-                        onClick={() => handleServiceClick(service.id)}
+                        onClick={() => {
+                          if (!service.isPhaseTwo) handleServiceClick(service.id);
+                        }}
                         className={`service-card floating-card flex flex-col items-center text-center group relative ${
                           IsArabicLanguage ? "text-right" : ""
-                        }`}
+                        } ${service.isPhaseTwo ? "grayscale opacity-55 cursor-not-allowed" : ""}`}
                         onMouseEnter={() => setIsHovered(service.id)}
                         onMouseLeave={() => setIsHovered(null)}
                       >
@@ -4160,6 +4122,13 @@ const RenderChartFullScreen = () => {
                             {service.description}
                           </p>
                         </div>
+                        {service.isPhaseTwo && (
+                          <div className="absolute inset-0 flex items-center justify-center rounded-[inherit] bg-white/80 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
+                            <span className="rounded-full bg-gray-700 px-3 py-1.5 text-xs font-semibold text-white">
+                              {IsArabicLanguage ? "المرحلة الثانية - قريباً" : "Phase 2 – Coming soon"}
+                            </span>
+                          </div>
+                        )}
                         {showPin && (
                         <div
                           className={`absolute top-4 ${
@@ -4338,14 +4307,16 @@ const RenderChartFullScreen = () => {
                       }`}
                     >
                       <div className="flex items-center gap-2">
-                        <NotificationBell
-                          isArabic={IsArabicLanguage}
-                          userEmail={userEmail}
-                          apiConfig={apiConfig}
-                          themeColors={themeColors}
-                          onSelectNotification={handleNotificationSelect}
-                          onOpenShared={() => sidebarRef.current?.openChatById("")}
-                        />
+                        {chatUiFeatures.notificationsEnabled && (
+                          <NotificationBell
+                            isArabic={IsArabicLanguage}
+                            userEmail={userEmail}
+                            apiConfig={apiConfig}
+                            themeColors={themeColors}
+                            onSelectNotification={handleNotificationSelect}
+                            onOpenShared={() => sidebarRef.current?.openChatById("")}
+                          />
+                        )}
                         {onLanguageChange && (
                           <LanguageToggle
                             isArabic={IsArabicLanguage}
@@ -4388,79 +4359,11 @@ const RenderChartFullScreen = () => {
                         >
                           {(
                             () => {
-                              const findHomeService = (matchers: string[]) => {
-                                const all = [
-                                  ...(startupData?.allServices || []),
-                                  ...(startupData?.categories?.flatMap(
-                                    (cat) => cat.services,
-                                  ) || []),
-                                ];
-                                return all.find((svc) =>
-                                  matchers.some((m) =>
-                                    svc.nameEn?.toLowerCase().includes(m),
-                                  ),
-                                );
-                              };
-                              const docQaService = findHomeService([
-                                "document q&a",
-                                "document qa",
-                                "q&a",
-                              ]);
-                              const proposalService = findHomeService([
-                                "proposal",
-                              ]);
-
                               return (
                                 <>
                           <button
-                            onClick={() => {
-                              if (docQaService) {
-                                handleServiceClick(docQaService.id);
-                              } else {
-                                setIsExploringServices(true);
-                              }
-                            }}
-                            className="service-card floating-card flex-shrink-0 w-[300px] flex flex-col items-center text-center snap-start relative hover:z-10"
-                            style={{ minHeight: "170px", padding: "1.25rem" }}
-                          >
-                            <div
-                              className="w-10 h-10 rounded-full flex items-center justify-center mb-3"
-                              style={{
-                                backgroundColor: `${themeColors.primary}22`,
-                                color: themeColors.primary,
-                              }}
-                            >
-                              <DocumentTextIcon className="w-5 h-5" />
-                            </div>
-                            <div className="flex-1 w-full">
-                              <h3
-                                className="text-lg font-semibold text-gray-900 mb-2"
-                                style={{ fontWeight: 600 }}
-                              >
-                                {IsArabicLanguage
-                                  ? "سؤال وجواب حول المستندات"
-                                  : "Document Q&A"}
-                              </h3>
-                              <p
-                                className="text-sm text-gray-600 leading-snug"
-                                style={{ fontWeight: 400 }}
-                              >
-                                {IsArabicLanguage
-                                  ? "ارفع مستنداتك واطرح أسئلتك للحصول على إجابات فورية"
-                                  : "Upload your documents and ask questions to get instant answers."}
-                              </p>
-                            </div>
-                          </button>
-
-                          <button
-                            onClick={() => {
-                              if (proposalService) {
-                                handleServiceClick(proposalService.id);
-                              } else {
-                                setIsExploringServices(true);
-                              }
-                            }}
-                            className="service-card floating-card flex-shrink-0 w-[300px] flex flex-col items-center text-center snap-start relative hover:z-10"
+                            type="button"
+                            className="service-card floating-card group flex-shrink-0 w-[300px] flex flex-col items-center text-center snap-start relative cursor-not-allowed grayscale opacity-55"
                             style={{ minHeight: "170px", padding: "1.25rem" }}
                           >
                             <div
@@ -4478,17 +4381,22 @@ const RenderChartFullScreen = () => {
                                 style={{ fontWeight: 600 }}
                               >
                                 {IsArabicLanguage
-                                  ? "تقييم طلبات العروض والمقترحات"
-                                  : "RFP & Proposal Evaluation"}
+                                  ? "تلخيص طلبات العروض"
+                                  : "RFP Summarizer"}
                               </h3>
                               <p
                                 className="text-sm text-gray-600 leading-snug"
                                 style={{ fontWeight: 400 }}
                               >
                                 {IsArabicLanguage
-                                  ? "ملخص طلب العروض، ثم تقييم وترتيب المقترحات واختيار الأنسب"
-                                  : "RFP summary, then evaluate and rank submitted proposals with a best-fit pick."}
+                                  ? "تلخيص طلبات العروض واستخراج المتطلبات الرئيسية بسرعة."
+                                  : "Summarize RFPs and extract their key requirements quickly."}
                               </p>
+                            </div>
+                            <div className="absolute inset-0 flex items-center justify-center rounded-[inherit] bg-white/80 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
+                              <span className="rounded-full bg-gray-700 px-3 py-1.5 text-xs font-semibold text-white">
+                                {IsArabicLanguage ? "المرحلة الثانية - قريباً" : "Phase 2 – Coming soon"}
+                              </span>
                             </div>
                           </button>
 
@@ -4600,8 +4508,109 @@ const RenderChartFullScreen = () => {
         )}
       </div>
 
-      {/* Chart Modal */}
-      {RenderChartFullScreen()}
+      <AnimatePresence>
+        {chartModal.isOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-0 sm:p-4"
+            onClick={() =>
+              setChartModal({ isOpen: false, chartState: null, messageId: "" })
+            }
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="hidden sm:flex flex-col bg-white rounded-xl shadow-2xl w-full max-w-6xl h-[90vh]"
+            >
+              <div className="flex items-center justify-between p-4 border-b border-gray-200">
+                <h3 className="text-lg font-semibold text-gray-900">{t("ChartView")}</h3>
+                <button
+                  onClick={() =>
+                    setChartModal({ isOpen: false, chartState: null, messageId: "" })
+                  }
+                  className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                >
+                  <XMarkIcon className="w-6 h-6 text-gray-500" />
+                </button>
+              </div>
+              <div className="flex justify-center items-center flex-grow p-4 overflow-auto">
+                {chartModal.chartState && (
+                  <RenderChart
+                    chartState={
+                      chartsState[Number(chartModal.messageId)] || chartModal.chartState
+                    }
+                    setChartState={(newState) => {
+                      const updatedState =
+                        typeof newState === "function"
+                          ? newState(
+                              chartsState[Number(chartModal.messageId)] ||
+                                chartModal.chartState
+                            )
+                          : newState;
+                      setChartsState((prev) => ({
+                        ...prev,
+                        [chartModal.messageId]: updatedState,
+                      }));
+                      setChartModal((prev) => ({
+                        ...prev,
+                        chartState: updatedState,
+                      }));
+                    }}
+                    themeColors={themeColors}
+                    isFullScreen={true}
+                  />
+                )}
+              </div>
+            </motion.div>
+
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="flex sm:hidden flex-col bg-white rounded-xl shadow-2xl w-full h-full max-h-screen"
+            >
+              <div className="flex flex-col w-full flex-1 min-h-0 overflow-hidden p-2 pt-12">
+                <RenderChart
+                  chartState={
+                    chartsState[Number(chartModal.messageId)] || chartModal.chartState
+                  }
+                  setChartState={(newState) => {
+                    const updatedState =
+                      typeof newState === "function"
+                        ? newState(
+                            chartsState[Number(chartModal.messageId)] ||
+                              chartModal.chartState
+                          )
+                        : newState;
+                    setChartsState((prev) => ({
+                      ...prev,
+                      [chartModal.messageId]: updatedState,
+                    }));
+                    setChartModal((prev) => ({
+                      ...prev,
+                      chartState: updatedState,
+                    }));
+                  }}
+                  themeColors={themeColors}
+                  isFullScreen={true}
+                  onclose={() =>
+                    setChartModal({
+                      isOpen: false,
+                      chartState: null,
+                      messageId: "",
+                    })
+                  }
+                />
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <ShareChatModal
         isOpen={isShareModalOpen}

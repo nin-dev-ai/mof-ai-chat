@@ -204,10 +204,7 @@ export class N8nChatService {
     return metadata;
   }
 
-  /**
-   * Uploads keep their own error handling so the n8n failure body survives,
-   * but still need a ceiling so a stalled request cannot hang the composer.
-   */
+  /** Uploads use the same timeout ceiling as chat, without exposing workflow internals to users. */
   private async fetchWithTimeout(
     request: (signal: AbortSignal) => Promise<Response>,
     timeoutMs: number,
@@ -304,8 +301,8 @@ export class N8nChatService {
       }
 
       if (!response.ok) {
-        const details = await response.text();
-        throw new Error(`Failed to upload files (${response.status})${details ? `: ${details}` : ''}`);
+        // Do not surface n8n/HTTP/database response bodies in the UI.
+        throw new Error('UPLOAD_FAILED');
       }
 
       return await this.parseResponseBody(response);

@@ -293,10 +293,21 @@ export class BackendService {
 
       const payload = await response.json();
       const result = Array.isArray(payload) ? payload[0] : payload;
-      return {
-        success: Boolean(result?.success),
-        data: Array.isArray(result?.data) ? result.data : [],
-      };
+      const groups = Array.isArray(result?.data) ? result.data : [];
+      // A shared-chat entry is valid only when it points to a real shared
+      // conversation. This prevents empty/default rows from appearing for a
+      // newly created account.
+      const data = groups
+        .map((group: SharedChatMemberGroup) => ({
+          ...group,
+          conversations: (group.conversations ?? []).filter(conversation =>
+            Number.isFinite(Number(conversation.chatSessionId)) &&
+            Number(conversation.chatSessionId) > 0 &&
+            Boolean(String(conversation.otherUserId ?? '').trim()),
+          ),
+        }))
+        .filter((group: SharedChatMemberGroup) => group.conversations.length > 0);
+      return { success: Boolean(result?.success), data };
     } catch (error) {
       console.error('Error loading shared chats:', error);
       return { success: false, data: [] };
