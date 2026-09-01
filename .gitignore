@@ -1,0 +1,12 @@
+# Dependencies and build output
+node_modules
+dist
+dist2
+coverage
+
+# Local tooling
+.netlify
+.charttest
+.DS_Store
+npm-debug.log*
+*.log

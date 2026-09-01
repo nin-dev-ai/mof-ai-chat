@@ -1,0 +1,62 @@
+/* Import Glassmorphism Styles */
+@import './glassmorphism.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer components {
+  .chat-input {
+    @apply w-full px-4 py-2 text-gray-700 bg-white border rounded-lg focus:outline-none focus:ring-2 focus:border-transparent;
+  }
+  
+  .chat-button {
+    @apply inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white focus:outline-none focus:ring-2 focus:ring-offset-2;
+  }
+
+  .chat-message {
+    @apply p-4 rounded-lg mb-4 max-w-[80%];
+  }
+
+  .user-message {
+    @apply ml-auto;
+  }
+
+  .ai-message {
+    @apply mr-auto;
+  }
+}
+
+@layer utilities {
+  .gradient-bg {
+    background: linear-gradient(180deg, #FFFFFF 0%, #F7F7F7 100%);
+  }
+  .gradient-divider {
+    background: linear-gradient(to right, #C6A75D 0%, rgba(255, 255, 255, 0) 100%);
+  }
+  .gold-accent {
+    color: #C6A75D;
+  }
+  .gold-bg {
+    background-color: #C6A75D;
+  }
+  .gold-border {
+    border-color: #C6A75D;
+  }
+}
+
+/* Custom animation for gradient text */
+@keyframes animateGradientText {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+.animated-gradient-text {
+  background-image: linear-gradient(to right, #C6A75D, #E5D4A6, #C6A75D); 
+  background-size: 200% auto;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  animation: animateGradientText 1.5s linear infinite;
+}

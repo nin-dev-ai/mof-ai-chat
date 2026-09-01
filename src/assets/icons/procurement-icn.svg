@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="Layer_1" xmlns="http://www.w3.org/2000/svg" version="1.1" viewBox="0 0 56 56">
+  <!-- Generator: Adobe Illustrator 29.4.0, SVG Export Plug-In . SVG Version: 2.1.0 Build 152)  -->
+  <defs>
+    <style>
+      .st0 {
+        stroke-miterlimit: 10;
+      }
+
+      .st0, .st1 {
+        fill: none;
+        stroke: #000;
+        stroke-linecap: round;
+        stroke-width: 2px;
+      }
+
+      .st1 {
+        stroke-miterlimit: 10;
+      }
+    </style>
+  </defs>
+  <g id="Group_1242">
+    <g id="Group_1243">
+      <path id="Path_572" class="st1" d="M27.619,22.374l-.897.897-1.795,1.795c-.993.991-2.601.99-3.592-.003s-.99-2.601.003-3.592h0l1.795-1.795,3.591-3.582,4.485,2.693,2.692-2.693,11.663,11.665-6.279,6.281"/>
+      <rect id="Rectangle_355" class="st0" x="13.207" y="34.872" width="8.882" height="3.807" rx="1.08" ry="1.08" transform="translate(-20.836 23.25) rotate(-45)"/>
+      <rect id="Rectangle_356" class="st0" x="15.907" y="37.588" width="8.882" height="3.807" rx="1.08" ry="1.08" transform="translate(-21.965 25.955) rotate(-45)"/>
+      <rect id="Rectangle_357" class="st0" x="18.609" y="40.28" width="8.882" height="3.807" rx="1.08" ry="1.08" transform="translate(-23.077 28.654) rotate(-45)"/>
+      <rect id="Rectangle_358" class="st0" x="23.478" y="42.074" width="6.345" height="3.807" rx="1.08" ry="1.08" transform="translate(-23.291 31.726) rotate(-45)"/>
+      <path id="Path_573" class="st1" d="M27.572,22.4l12.059,12.059c.805.805.805,2.111,0,2.916s-2.111.805-2.916,0l-3.983-3.985"/>
+      <path id="Path_574" class="st1" d="M32.728,33.413l3.982,3.982c.805.805.805,2.111,0,2.916s-2.111.805-2.916,0h0l-3.982-3.983"/>
+      <path id="Path_575" class="st1" d="M29.804,36.351l3.982,3.982c.805.805.805,2.111,0,2.916s-2.111.805-2.916,0l-3.99-3.982"/>
+      <path id="Path_576" class="st1" d="M30.866,43.25c.791.819.769,2.124-.05,2.915-.799.772-2.065.772-2.865,0"/>
+      <path id="Path_577" class="st1" d="M16.718,34.941l-6.283-6.281,11.665-11.663,1.795,1.793"/>
+      <rect id="Rectangle_359" class="st0" x="38.616" y="8.413" width="7.614" height="21.571" transform="translate(-1.15 35.621) rotate(-45)"/>
+      <rect id="Rectangle_360" class="st0" x="2.791" y="16.29" width="21.571" height="7.614" transform="translate(-10.234 15.486) rotate(-45)"/>
+    </g>
+  </g>
+</svg>

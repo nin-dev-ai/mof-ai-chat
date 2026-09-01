@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="Layer_1" xmlns="http://www.w3.org/2000/svg" version="1.1" viewBox="0 0 56 56">
+  <!-- Generator: Adobe Illustrator 29.4.0, SVG Export Plug-In . SVG Version: 2.1.0 Build 152)  -->
+  <defs>
+    <style>
+      .st0 {
+        fill: none;
+        stroke: #000;
+        stroke-linecap: round;
+        stroke-miterlimit: 10;
+        stroke-width: 2px;
+      }
+    </style>
+  </defs>
+  <g id="Group_6273">
+    <g id="Group_6274">
+      <rect id="Rectangle_1933" class="st0" x="5.001" y="5" width="45.997" height="46" rx="1" ry="1"/>
+      <path id="Path_3177" class="st0" d="M47.117,27.988h-3.648c-.01,0-.018.008-.018.018v3.41c0,2.143-1.737,3.88-3.88,3.88s-3.88-1.737-3.88-3.88v-3.398c0-.01-.008-.018-.018-.018h-3.648"/>
+      <path id="Path_3178" class="st0" d="M28.069,47.045v-3.648c0-.01-.008-.018-.018-.018h-3.413c-2.143,0-3.88-1.737-3.88-3.88s1.737-3.88,3.88-3.88h3.41c.01,0,.018-.008.018-.018v-15.202c0-.01.008-.018.018-.018h3.41c2.143,0,3.88-1.737,3.88-3.88s-1.737-3.88-3.88-3.88h-3.407c-.01,0-.018-.008-.018-.018v-3.648"/>
+      <path id="Path_3179" class="st0" d="M9.03,28h3.648c.01,0,.018-.008.018-.018h0v-3.413c0-2.143,1.737-3.88,3.88-3.88s3.88,1.737,3.88,3.88v3.41c0,.01.008.018.018.018h3.649"/>
+    </g>
+  </g>
+</svg>
