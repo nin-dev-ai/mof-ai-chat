@@ -7,6 +7,7 @@
   "scripts": {
     "build": "node build-css.js && vite build && vite build --config ./config/vite.config.mts",
     "build:mobile": "node build-css.js && vite build --config ./config/vite.config.mts",
+    "build:frontend": "node build-css.js && vite build --config ./config/vite.config.mts",
     "start": "webpack serve --config webpack.config.cjs --mode development --port 3000",
     "build:web": "BUILD_APP=1 webpack --config webpack.config.cjs --mode production && cp -R public/. dist/",
     "test": "jest",
