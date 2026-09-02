@@ -1,5 +1,3 @@
-import { GOTRUE_URL } from '../constants/chatConstants';
-
 export interface GoTrueSession {
   accessToken: string;
   refreshToken: string;
@@ -9,10 +7,6 @@ export interface GoTrueSession {
 
 interface GoTrueTokenResponse {
   status?: string;
-  msg?: string;
-  message?: string;
-  error?: string;
-  error_description?: string;
   token?: string;
   access_token?: string;
   refresh_token?: string;
@@ -28,41 +22,13 @@ const EXPIRES_AT_KEY = 'authExpiresAt';
 const USER_DATA_KEY = 'userData';
 export const AUTH_SESSION_CHANGED_EVENT = 'gotrue-auth-session-changed';
 
-function normalizeBaseUrl(url: string): string {
-  return url.replace(/\/+$/, '');
-}
-
-let gotrueBaseUrl = normalizeBaseUrl(GOTRUE_URL);
-let refreshUrl = `${gotrueBaseUrl}/token?grant_type=refresh_token`;
-let logoutUrl = `${gotrueBaseUrl}/logout`;
+let refreshUrl = '';
+let logoutUrl = '';
 let refreshInFlight: Promise<GoTrueSession | null> | null = null;
 
-export function configureAuthSession(config?: {
-  baseUrl?: string;
-  refreshUrl?: string;
-  logoutUrl?: string;
-}): void {
-  if (config?.baseUrl) {
-    gotrueBaseUrl = normalizeBaseUrl(config.baseUrl);
-  }
-  refreshUrl = config?.refreshUrl ?? `${gotrueBaseUrl}/token?grant_type=refresh_token`;
-  logoutUrl = config?.logoutUrl ?? `${gotrueBaseUrl}/logout`;
-}
-
-function gotrueErrorMessage(data: GoTrueTokenResponse | undefined, fallback: string): string {
-  const message = data?.error_description || data?.msg || data?.message || data?.error || data?.status;
-  return typeof message === 'string' && message.trim() ? message : fallback;
-}
-
-function hasAccessToken(result: GoTrueTokenResponse | undefined): boolean {
-  if (!result) return false;
-  if (result.status === 'invalid login') return false;
-  return Boolean(String(result.access_token ?? result.token ?? '').trim());
-}
-
-async function parseGoTrueJson(response: Response): Promise<GoTrueTokenResponse> {
-  const data = await response.json().catch(() => ({}));
-  return (Array.isArray(data) ? data[0] : data) as GoTrueTokenResponse;
+export function configureAuthSession(config: { refreshUrl: string; logoutUrl?: string }): void {
+  refreshUrl = config.refreshUrl;
+  logoutUrl = config.logoutUrl ?? '';
 }
 
 function decodeJwtExpiry(token: string): number | null {
@@ -177,8 +143,9 @@ export async function refreshAuthSession(force = false): Promise<GoTrueSession |
       clearAuthSession();
       return null;
     }
-    const result = await parseGoTrueJson(response);
-    if (!hasAccessToken(result)) {
+    const data = await response.json() as GoTrueTokenResponse | GoTrueTokenResponse[];
+    const result = Array.isArray(data) ? data[0] : data;
+    if (!result || result.status !== 'success' || !(result.access_token ?? result.token)) {
       clearAuthSession();
       return null;
     }
@@ -221,34 +188,4 @@ export async function logoutAuthSession(): Promise<void> {
     }
   }
   clearAuthSession();
-}
-
-export async function loginWithPassword(email: string, password: string): Promise<GoTrueSession> {
-  const response = await fetch(`${gotrueBaseUrl}/token?grant_type=password`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password }),
-  });
-  const result = await parseGoTrueJson(response);
-  if (!response.ok || !hasAccessToken(result)) {
-    throw new Error(gotrueErrorMessage(result, 'Invalid username or password'));
-  }
-  return storeGoTrueSession(result);
-}
-
-export async function signupWithPassword(email: string, password: string, fullName: string): Promise<GoTrueSession> {
-  const response = await fetch(`${gotrueBaseUrl}/signup`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      email,
-      password,
-      data: { full_name: fullName, employee_name: fullName },
-    }),
-  });
-  const result = await parseGoTrueJson(response);
-  if (!response.ok || !hasAccessToken(result)) {
-    throw new Error(gotrueErrorMessage(result, 'Unable to create account'));
-  }
-  return storeGoTrueSession(result);
 }

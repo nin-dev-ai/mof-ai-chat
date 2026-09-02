@@ -68,7 +68,7 @@ export class BackendService {
     if (this.headers["Token"]) {
       headers.set("token", this.headers["Token"]);
     }
-    const response = await authFetch(`${this.baseUrl}/ai/${endpoint}`, {
+    const response = await authFetch(`${this.baseUrl}/${endpoint}`, {
       ...options,
       headers,
     });
@@ -79,7 +79,7 @@ export class BackendService {
   }
 
   async getStartupData(): Promise<ApiResponse<StartupData>> {
-    const response = await authFetch(`${this.baseUrl}/ai/user/initialize`, {
+    const response = await authFetch(`${this.baseUrl}/user/startup`, {
       method: 'GET',
       headers: this.authHeaders(true),
     });
@@ -108,7 +108,7 @@ export class BackendService {
 
   async getChatSessions(): Promise<{ success: boolean; data?: ChatSession[] }> {
     try {
-      const response = await authFetch(`${this.baseUrl}/ai/user/chat/session`, {
+      const response = await authFetch(`${this.baseUrl}/user/chat/session`, {
         method: "GET",
         headers: this.authHeaders(true),
       });
@@ -133,7 +133,7 @@ export class BackendService {
     }
 
     try {
-      const response = await authFetch(`${this.baseUrl}/ai/user/chat/session/${sessionId}`, {
+      const response = await authFetch(`${this.baseUrl}/user/chat/session/${sessionId}`, {
         method: "DELETE",
         headers: this.authHeaders(false),
       });
@@ -143,7 +143,7 @@ export class BackendService {
       }
 
       if (response.status === 404 || response.status === 405) {
-        const fallback = await authFetch(`${this.baseUrl}/ai/user/chat/session?id=${sessionId}`, {
+        const fallback = await authFetch(`${this.baseUrl}/user/chat/session?id=${sessionId}`, {
           method: "DELETE",
           headers: this.authHeaders(false),
         });
@@ -164,7 +164,7 @@ export class BackendService {
     sessionId: number
   ): Promise<{ success: boolean; data?: ChatHistoryDetail[] }> {
     try {
-      const urls = [`${this.baseUrl}/ai/chat/history?id=${sessionId}`];
+      const urls = [`${this.baseUrl}/chat/history?id=${sessionId}`];
 
       for (const url of urls) {
         const response = await authFetch(url, {
@@ -190,7 +190,7 @@ export class BackendService {
    */
   async downloadChatAttachment(attachmentId: number): Promise<Blob> {
     const response = await authFetch(
-      `${this.baseUrl}/ai/chat/file?id=${encodeURIComponent(String(attachmentId))}`,
+      `${this.baseUrl}/chat/file?id=${encodeURIComponent(String(attachmentId))}`,
       {
         method: 'GET',
         headers: this.authHeaders(false),
@@ -238,7 +238,7 @@ export class BackendService {
     targetUserId: string,
     serviceId?: number
   ): Promise<ApiResponse<number>> {
-    const response = await authFetch(`${this.baseUrl}/ai/user/chat/share`, {
+    const response = await authFetch(`${this.baseUrl}/user/chat/share`, {
       method: 'POST',
       headers: this.authHeaders(true),
       body: JSON.stringify({ chatSessionId: sessionId, targetUserId, serviceId }),
@@ -260,7 +260,7 @@ export class BackendService {
 
   async searchUsers(searchText: string): Promise<ApiResponse<UserLookupItem[]>> {
     const query = new URLSearchParams({ searchText: searchText.trim() });
-    const response = await authFetch(`${this.baseUrl}/ai/user/search?${query}`, {
+    const response = await authFetch(`${this.baseUrl}/user/search?${query}`, {
       method: 'GET',
       headers: this.authHeaders(false),
     });
@@ -281,7 +281,7 @@ export class BackendService {
 
   async getSharedChatSessions(): Promise<{ success: boolean; data?: SharedChatMemberGroup[] }> {
     try {
-      const response = await authFetch(`${this.baseUrl}/ai/user/chat/shared`, {
+      const response = await authFetch(`${this.baseUrl}/user/chat/shared`, {
         method: 'GET',
         headers: this.authHeaders(false),
       });

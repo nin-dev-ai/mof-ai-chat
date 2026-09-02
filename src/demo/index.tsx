@@ -8,18 +8,24 @@ import {
   AUTH_SESSION_CHANGED_EVENT,
   configureAuthSession,
   getStoredSession,
-  loginWithPassword,
   logoutAuthSession,
   refreshAuthSession,
-  signupWithPassword,
+  storeGoTrueSession,
 } from '../services/authSession';
-import { GOTRUE_URL } from '../constants/chatConstants';
+import { N8N_WEBHOOK_BASE_URL } from '../constants/chatConstants';
 import '../styles/input.css';
 import '../i18n';
+import { ignoreResizeObserverLoopError } from '../utils/ignoreResizeObserverError';
 
-const API_BASE_URL = 'https://uat-esolutions.solutionsplus.ae';
+ignoreResizeObserverLoopError();
 
-configureAuthSession({ baseUrl: GOTRUE_URL });
+const API_BASE_URL = N8N_WEBHOOK_BASE_URL;
+const LOGIN_URL = `${API_BASE_URL}/auth/login`;
+const SIGNUP_URL = `${API_BASE_URL}/auth/signup`;
+const REFRESH_URL = `${API_BASE_URL}/user/refresh`;
+const LOGOUT_URL = `${API_BASE_URL}/user/logout`;
+
+configureAuthSession({ refreshUrl: REFRESH_URL, logoutUrl: LOGOUT_URL });
 
 const THEME_COLORS = {
   primary: '#C6A75D',
@@ -97,7 +103,23 @@ const App = () => {
     const email = normalizeMofEmail(username);
     if (!isMofEmail(email)) throw new Error(MOF_EMAIL_ERROR);
 
-    const session = await loginWithPassword(email, password);
+    const response = await fetch(LOGIN_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: email, password }),
+    });
+
+    if (!response.ok) {
+      throw new Error('Invalid username or password');
+    }
+
+    const data = await response.json();
+    const result = Array.isArray(data) ? data[0] : data;
+    if (!result || result.status === 'invalid login' || !result.token) {
+      throw new Error('Invalid username or password');
+    }
+
+    const session = storeGoTrueSession(result);
     setAuth({ token: session.accessToken, user: session.user });
   };
 
@@ -107,7 +129,17 @@ const App = () => {
     const name = fullName.trim().replace(/\s+/g, ' ');
     if (name.length < 2) throw new Error('Please enter your full name');
 
-    const session = await signupWithPassword(email, password, name);
+    const response = await fetch(SIGNUP_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: email, password, fullName: name }),
+    });
+    const data = await response.json();
+    const result = Array.isArray(data) ? data[0] : data;
+    if (!response.ok || !result || result.status !== 'success' || !result.token) {
+      throw new Error(result?.message || 'Unable to create account');
+    }
+    const session = storeGoTrueSession(result);
     setAuth({ token: session.accessToken, user: session.user });
   };
 
