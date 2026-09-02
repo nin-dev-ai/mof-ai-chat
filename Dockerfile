@@ -1,50 +1,61 @@
 # Build stage
 FROM node:20.19-alpine AS build
 
+# Proxy arguments passed during docker build
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
+
+# Make proxy available inside the build container
+ENV HTTP_PROXY=${HTTP_PROXY}
+ENV HTTPS_PROXY=${HTTPS_PROXY}
+ENV http_proxy=${HTTP_PROXY}
+ENV https_proxy=${HTTPS_PROXY}
+
 WORKDIR /app
 
 # Copy package files
 COPY package*.json ./
 
-# npm 10 (bundled with the node:18 image) can exit 0 from `npm ci` after
-# aborting with "Exit handler never called!", leaving node_modules empty.
-# Use a newer npm so the clean install either succeeds or fails loudly.
+# Explicitly configure npm to use the proxy
+RUN npm config set proxy ${HTTP_PROXY} \
+    && npm config set https-proxy ${HTTPS_PROXY}
+
+# Use newer npm so npm ci fails properly if something goes wrong
 RUN npm install --global npm@11.10.0
 
-# Install the exact dependency versions recorded in package-lock.json.
+# Install exact dependency versions from package-lock.json
 RUN npm ci --no-audit --no-fund
 
-# Guard against the silent-failure mode above: the build needs these to resolve.
-RUN test -d node_modules/postcss && test -d node_modules/tailwindcss && test -d node_modules/vite
+# Guard against silent dependency installation failure
+RUN test -d node_modules/postcss \
+    && test -d node_modules/tailwindcss \
+    && test -d node_modules/vite
 
 # Copy source code
 COPY . .
 
-# build-css.js writes into dist2/, which is gitignored and absent in a clean
-# checkout. Without this the CSS step fails silently.
+# build-css.js writes into dist2/, which is gitignored
 RUN mkdir -p dist2
 
-# Build the browser bundle served by Nginx.
+# Build frontend
 RUN npm run build:frontend
 
-# Fail here rather than shipping an empty document root.
-RUN test -f dist/index.html && test -f dist/main.js
+# Ensure frontend output actually exists
+RUN test -f dist/index.html \
+    && test -f dist/main.js
 
 # Production stage
 FROM nginx:alpine
 
-# Default for plain `docker run`; Railway overrides PORT at runtime.
+# Default port
 ENV PORT=8080
 
-# Copy built assets from build stage
+# Copy built frontend assets
 COPY --from=build /app/dist /usr/share/nginx/html
 
-# Copy the templated nginx configuration. The official nginx image expands
-# ${PORT} at container start, so Railway can route to its assigned port.
+# Copy nginx configuration
 COPY nginx.conf /etc/nginx/templates/default.conf.template
 
-# Railway supplies PORT at runtime. This is documentation for local Docker
-# users; nginx ultimately listens on the value of PORT.
 EXPOSE 8080
 
 # Start Nginx
